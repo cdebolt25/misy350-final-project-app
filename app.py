@@ -146,7 +146,7 @@ def chatbot_reply(message: str) -> str:
 init_session()
 st.set_page_config(page_title="Community Exchange MVP", layout="wide")
 st.title("Community Exchange")
-st.caption("Place holder for now - FIX LATER")
+st.caption("Informational Meetings, Conferences, and More!")
 
 with st.sidebar:
     st.subheader("Navigation")
@@ -225,3 +225,244 @@ elif not st.session_state.logged_in and view == "Login":
             st.session_state.role = u["role"]
             st.success("Welcome back!")
             st.rerun()
+
+## Hub or dashboard for architects (needed a little bit of help from online here)
+elif st.session_state.logged_in and st.session_state.role == "architect" and view == "Architect hub":
+    st.header("Event Architect hub")
+    t1, t2 = st.tabs(["Events (create & manage)", "Needs lists (per event)"])
+
+    with t1:
+        st.subheader("Create event")
+        with st.form("create_event"):
+            title = st.text_input("Title")
+            when = st.text_input("Date / time", placeholder="e.g. 2026-04-12 18:00")
+            location = st.text_input("Location")
+            desc = st.text_area("Description")
+            c = st.form_submit_button("Create")
+        if c:
+            if not title.strip():
+                st.error("Title is required.")
+            else:
+                events.append(
+                    {
+                        "event_id": new_id("EVT"),
+                        "title": title.strip(),
+                        "datetime": when.strip() or "TBD",
+                        "location": location.strip() or "TBD",
+                        "description": desc.strip(),
+                        "needs": [],
+                    }
+                )
+                save_events()
+                st.success("Event created.")
+
+        st.subheader("Read / update / delete events")
+        if not events:
+            st.info("No events yet. Create one above.")
+        else:
+            labels = [f"{e['title']} ({e['event_id']})" for e in events]
+            idx = st.selectbox("Select event", range(len(labels)), format_func=lambda i: labels[i])
+            ev = events[idx]
+            with st.form("edit_event"):
+                etitle = st.text_input("Title", value=ev["title"])
+                ewhen = st.text_input("Date / time", value=ev["datetime"])
+                eloc = st.text_input("Location", value=ev["location"])
+                edesc = st.text_area("Description", value=ev["description"])
+                colu, cold = st.columns(2)
+                with colu:
+                    upd = st.form_submit_button("Save changes")
+                with cold:
+                    dele = st.form_submit_button("Delete event")
+                if upd:
+                    ev["title"] = etitle.strip()
+                    ev["datetime"] = ewhen.strip()
+                    ev["location"] = eloc.strip()
+                    ev["description"] = edesc.strip()
+                    save_events()
+                    st.success("Event updated.")
+                if dele:
+                    eid = ev["event_id"]
+                    events.pop(idx)
+                    passes[:] = [p for p in passes if p["event_id"] != eid]
+                    save_events()
+                    save_passes()
+                    st.success("Event removed (related passes deleted).")
+                    st.rerun()
+
+
+    with t2:
+        st.subheader("Maintain needs lists")
+        if not events:
+            st.warning("Create an event first.")
+        else:
+            names = [e["title"] for e in events]
+            ei = st.selectbox("Event", range(len(names)), format_func=lambda i: names[i])
+            ev = events[ei]
+
+            st.markdown(f"**{ev['title']}** — {ev['datetime']} @ {ev['location']}")
+
+            with st.form("add_need"):
+                nd = st.text_input("Need description (e.g. 2 extension cords)")
+                nq = st.number_input("Quantity needed", min_value=1, value=1, step=1)
+                add = st.form_submit_button("Add need")
+            if add:
+                if not nd.strip():
+                    st.error("Description required.")
+                else:
+                    ev.setdefault("needs", []).append(
+                        {
+                            "need_id": new_id("NED"),
+                            "description": nd.strip(),
+                            "quantity_needed": int(nq),
+                            "contributions": [],
+                        }
+                    )
+                    save_events()
+                    st.success("Need added.")
+
+            if not ev.get("needs"):
+                st.info("No needs yet for this event.")
+            else:
+                for need in ev["needs"]:
+                    rem = need_remaining(need)
+                    with st.expander(f"{need['description']} — {rem} / {need['quantity_needed']} open"):
+                        with st.form(f"need_{need['need_id']}"):
+                            d2 = st.text_input("Description", value=need["description"], key=f"d_{need['need_id']}")
+                            q2 = st.number_input(
+                                "Quantity needed",
+                                min_value=1,
+                                value=int(need["quantity_needed"]),
+                                key=f"q_{need['need_id']}",
+                            )
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                save_need = st.form_submit_button("Save need")
+                            with c2:
+                                del_need = st.form_submit_button("Delete need")
+                            if save_need:
+                                need["description"] = d2.strip()
+                                need["quantity_needed"] = int(q2)
+                                save_events()
+                                st.success("Need updated.")
+                            if del_need:
+                                nid = need["need_id"]
+                                ev["needs"] = [n for n in ev["needs"] if n["need_id"] != nid]
+                                passes[:] = [
+                                    p for p in passes if not (p["event_id"] == ev["event_id"] and p["need_id"] == nid)
+                                ]
+                                save_events()
+                                save_passes()
+                                st.success("Need removed; related passes cleared.")
+                                st.rerun()
+
+## Collaborator discover events (not too bad but some help from online, still worked through everything myself)
+elif st.session_state.logged_in and st.session_state.role == "collaborator" and view == "Discover & claim":
+    st.header("Discover events & claim a contribution")
+    if not events:
+        st.info("No events published yet.")
+    else:
+        for ev in events:
+            with st.expander(f"**{ev['title']}** — {ev['datetime']}"):
+                st.write(ev.get("description", ""))
+                st.caption(f"Location: {ev.get('location', 'TBD')}")
+                open_needs = [n for n in ev.get("needs", []) if need_remaining(n) > 0]
+                if not ev.get("needs"):
+                    st.write("No needs listed.")
+                elif not open_needs:
+                    st.success("All needs are covered for this event.")
+                else:
+                    opts = [f"{n['description']} ({need_remaining(n)} open)" for n in open_needs]
+                    choice = st.selectbox("Choose a need to sponsor", range(len(opts)), format_func=lambda i: opts[i], key=f"pick_{ev['event_id']}")
+                    qty = st.number_input(
+                        "How many units are you bringing?",
+                        min_value=1,
+                        max_value=need_remaining(open_needs[choice]),
+                        key=f"qty_{ev['event_id']}",
+                    )
+                    if st.button("Claim & get entry pass", key=f"btn_{ev['event_id']}"):
+                        need = open_needs[choice]
+                        rem = need_remaining(need)
+                        if qty > rem:
+                            st.error("Not enough remaining for that need.")
+                        else:
+                            claim_id = new_id("CLM")
+                            need.setdefault("contributions", []).append(
+                                {
+                                    "claim_id": claim_id,
+                                    "user_id": st.session_state.user_id,
+                                    "username": st.session_state.username,
+                                    "quantity": int(qty),
+                                }
+                            )
+                            pid = new_id("PASS")
+                            passes.append(
+                                {
+                                    "pass_id": pid,
+                                    "claim_id": claim_id,
+                                    "user_id": st.session_state.user_id,
+                                    "username": st.session_state.username,
+                                    "event_id": ev["event_id"],
+                                    "event_title": ev["title"],
+                                    "need_id": need["need_id"],
+                                    "need_description": need["description"],
+                                    "quantity": int(qty),
+                                    "created_at": datetime.now(timezone.utc).isoformat(),
+                                }
+                            )
+                            save_events()
+                            save_passes()
+                            st.success(f"Pass **{pid}** issued. See **My entry passes**.")
+                            st.balloons()
+
+## Collaborator passes
+elif st.session_state.logged_in and st.session_state.role == "collaborator" and view == "My entry passes":
+    st.header("My entry passes")
+    mine = [p for p in passes if p["user_id"] == st.session_state.user_id]
+    if not mine:
+        st.info("You have no passes yet. Claim a need from an event.")
+    else:
+        ## Needed help here, a lot of help haha
+        for p in mine:
+            with st.expander(f"{p['pass_id']} — {p['event_title']}"):
+                st.write(f"**Contribution:** {p['need_description']} × {p['quantity']}")
+                st.caption(f"Issued {p.get('created_at', '')}")
+                if st.button("Cancel this contribution", key=f"cx_{p['pass_id']}"):
+                    ev = event_by_id(p["event_id"])
+                    cid = p.get("claim_id")
+                    if ev:
+                        for need in ev.get("needs", []):
+                            if need["need_id"] == p["need_id"]:
+                                if cid:
+                                    need["contributions"] = [
+                                        c for c in need.get("contributions", []) if c.get("claim_id") != cid
+                                    ]
+                                else:
+                                    need["contributions"] = [
+                                        c
+                                        for c in need.get("contributions", [])
+                                        if not (
+                                            c["user_id"] == p["user_id"]
+                                            and c["quantity"] == p["quantity"]
+                                            and c.get("username") == p["username"]
+                                        )
+                                    ]
+                                break
+                    passes[:] = [x for x in passes if x["pass_id"] != p["pass_id"]]
+                    save_events()
+                    save_passes()
+                    st.success("Contribution cancelled; pass removed.")
+                    st.rerun()
+
+## Resource Assistants
+elif st.session_state.logged_in and view == "Resource Assistant":
+    st.header("Resource Assistant (simulated)")
+    st.caption("Hardcoded responses — Phase 1. Try the suggested questions.")
+    q = st.text_input("Your question", placeholder='e.g. What can I bring to the Python Study Group?')
+    if st.button("Ask"):
+        if not q.strip():
+            st.warning("Type a question first.")
+        else:
+            st.markdown(chatbot_reply(q))
+
+else:
+    st.info("Use the sidebar to log in or register.")

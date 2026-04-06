@@ -4,5 +4,11 @@
         "username": "cdebolt",
         "password_hash": "9b32950cea51fb5b7dea0c5a5597ff08a3e327647466382e61bcba14f84744ee",
         "role": "collaborator"
+    },
+    {
+        "user_id": "USR-DFA48CA3",
+        "username": "john_smith",
+        "password_hash": "9b32950cea51fb5b7dea0c5a5597ff08a3e327647466382e61bcba14f84744ee",
+        "role": "architect"
     }
 ]
